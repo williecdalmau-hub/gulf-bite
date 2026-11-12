@@ -464,7 +464,7 @@ function openMap() {
   if (typeof L === "undefined") { $("#mapStatus").textContent = "Map couldn't load"; return; }
   const sp = curSpot();
   if (!map) {
-    map = L.map("map", { zoomControl: false, attributionControl: true }).setView(pendingCenter || [sp.lat, sp.lon], 10);
+    map = L.map("map", { zoomControl: false, attributionControl: true }).setView(pendingCenter || [sp.lat, sp.lon], 11);
     L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 18, attribution: "Imagery © Esri" }).addTo(map);
     L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", { maxZoom: 18, opacity: .8 }).addTo(map);
     gridLayer = L.layerGroup().addTo(map); hotLayer = L.layerGroup().addTo(map); obsLayer = L.layerGroup().addTo(map); markLayer = L.layerGroup().addTo(map);
@@ -532,6 +532,7 @@ async function loadHot() {
   if (!hotLayer) return;
   if (!hotOn) { hotLayer.clearLayers(); return; }
   if (map.getZoom() < 9) { hotLayer.clearLayers(); $("#mapStatus").textContent = "Zoom in to see hotspots"; return; }
+  $("#mapStatus").textContent = "Finding hotspots…";
   const b = map.getBounds(), r = v => v.toFixed(2);
   const bb = `${r(b.getSouth())},${r(b.getWest())},${r(b.getNorth())},${r(b.getEast())}`;
   try {
