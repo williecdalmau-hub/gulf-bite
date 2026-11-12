@@ -528,6 +528,19 @@ async function drawObs() {
     });
   });
 }
+const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter"];
+async function overpass(q) {
+  let last;
+  for (const url of OVERPASS) {
+    const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 15000);
+    try {
+      const r = await fetch(url, { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "Content-Type": "application/x-www-form-urlencoded" }, signal: ctl.signal });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const j = await r.json(); clearTimeout(timer); return j;
+    } catch (e) { clearTimeout(timer); last = e; }
+  }
+  throw last || new Error("No hotspot server answered");
+}
 async function loadHot() {
   if (!hotLayer) return;
   if (!hotOn) { hotLayer.clearLayers(); return; }
@@ -537,8 +550,8 @@ async function loadHot() {
   const bb = `${r(b.getSouth())},${r(b.getWest())},${r(b.getNorth())},${r(b.getEast())}`;
   try {
     if (!hotCache[bb]) {
-      const q = `[out:json][timeout:25];(node["leisure"="fishing"](${bb});way["leisure"="fishing"](${bb});node["fishing"="yes"](${bb});way["fishing"="yes"](${bb});way["man_made"="pier"](${bb});node["man_made"="pier"](${bb});node["leisure"="slipway"](${bb});way["leisure"="slipway"](${bb}););out center 250;`;
-      const j = await getJSON("https://overpass-api.de/api/interpreter?data=" + encodeURIComponent(q));
+      const q = `[out:json][timeout:25];(node["leisure"="fishing"](${bb});way["leisure"="fishing"](${bb});node["fishing"="yes"](${bb});way["fishing"="yes"](${bb});way["man_made"="pier"](${bb});node["man_made"="pier"](${bb});node["leisure"="slipway"](${bb});way["leisure"="slipway"](${bb}););out center 200;`;
+      const j = await overpass(q);
       hotCache[bb] = (j.elements || []).map(e => {
         const t = e.tags || {}, lat = e.lat != null ? e.lat : e.center && e.center.lat, lon = e.lon != null ? e.lon : e.center && e.center.lon;
         const kind = t.leisure === "slipway" ? "ramp" : t.man_made === "pier" ? "pier" : "fish";
@@ -559,7 +572,7 @@ async function loadHot() {
       });
     });
     if ($("#mapStatus").textContent.startsWith("Zoom")) $("#mapStatus").textContent = "";
-  } catch (e) { $("#mapStatus").textContent = "Hotspots unavailable right now"; }
+  } catch (e) { $("#mapStatus").textContent = "Hotspots busy. Tap 🐟 twice to retry"; }
 }
 async function pointInfo(ll, el) {
   const t = gridData && gridData.times ? gridData.times[+$("#mapSlider").value] : new Date();
@@ -575,7 +588,7 @@ async function pointInfo(ll, el) {
 }
 async function loadGrid() {
   if (!map) return;
-  const b = map.getBounds(), n = 6;
+  const b = map.getBounds(), n = map.getZoom() >= 11 ? 4 : map.getZoom() >= 9 ? 5 : 6;
   const lats = [], lons = [];
   for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
     lats.push(+(b.getSouth() + (i + 0.5) / n * (b.getNorth() - b.getSouth())).toFixed(3));
