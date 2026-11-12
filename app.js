@@ -235,7 +235,7 @@ function show(t) {
   if (t === "map") openMap();
 }
 $$("nav button").forEach(b => b.addEventListener("click", () => show(b.dataset.tab)));
-$("#refresh").addEventListener("click", () => { Object.keys(cache).forEach(k => delete cache[k]); gridCache = {}; show(tab); });
+$("#refresh").addEventListener("click", () => { Object.keys(cache).forEach(k => delete cache[k]); Object.keys(obsCache).forEach(k => delete obsCache[k]); gridCache = {}; show(tab); });
 
 /* ---------------- home ---------------- */
 function renderHome() {
@@ -264,6 +264,57 @@ function renderHome() {
   });
 }
 
+/* ---------------- NOAA live observations (CO-OPS) ---------------- */
+const obsCache = {};
+async function obsStations() {
+  const c = LS.get("gb_obsst", null);
+  if (c && Date.now() - c.ts < 30 * 864e5) return c.list;
+  const j = await getJSON("https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=waterlevels");
+  const list = (j.stations || []).map(s => [s.id, s.name, +s.lat, +s.lng]);
+  LS.set("gb_obsst", { ts: Date.now(), list });
+  return list;
+}
+async function nearestObs(lat, lon, maxMi) {
+  const list = await obsStations(); let best = null, bd = 1e9;
+  list.forEach(s => { const d = miles(lat, lon, s[2], s[3]); if (d < bd) { bd = d; best = s; } });
+  return best && bd <= maxMi ? { id: best[0], name: best[1], lat: best[2], lon: best[3], dist: bd } : null;
+}
+async function latestObs(id) {
+  const c = obsCache[id]; if (c && Date.now() - c.ts < 6 * 60e3) return c.o;
+  const u = p => `https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?date=latest&station=${id}&product=${p}&units=english&time_zone=lst_ldt&format=json&application=GulfBite${p === "water_level" ? "&datum=MLLW" : ""}`;
+  const [wt, wi, ap, wl] = await Promise.allSettled(["water_temperature", "wind", "air_pressure", "water_level"].map(p => getJSON(u(p))));
+  const first = r => r.status === "fulfilled" && r.value && r.value.data && r.value.data[0] ? r.value.data[0] : null;
+  const tt = x => new Date(x.t.replace(" ", "T"));
+  const o = {}, a = first(wt), b = first(wi), p = first(ap), l = first(wl);
+  if (a && a.v !== "") o.temp = { v: +a.v, t: tt(a) };
+  if (b && b.s !== "") o.wind = { mph: +b.s * 1.15078, gust: b.g !== "" ? +b.g * 1.15078 : null, dir: +b.d, dr: b.dr, t: tt(b) };
+  if (p && p.v !== "") o.pres = { v: inHg(+p.v), t: tt(p) };
+  if (l && l.v !== "") o.level = { v: +l.v, t: tt(l) };
+  obsCache[id] = { ts: Date.now(), o };
+  return o;
+}
+function ago(t) { const m = Math.round((Date.now() - t) / 60e3); return m < 1 ? "just now" : m < 60 ? m + " min ago" : Math.round(m / 60) + " hr ago"; }
+function obsHTML(o) {
+  const items = [];
+  if (o.temp) items.push(`<div><span>Water temp</span><b>${o.temp.v.toFixed(1)}°F</b></div>`);
+  if (o.wind) items.push(`<div><span>Wind ${esc(o.wind.dr || compass(o.wind.dir))}</span><b>${Math.round(o.wind.mph)}${o.wind.gust != null ? `<span class="muted">/${Math.round(o.wind.gust)}</span>` : ""} mph</b></div>`);
+  if (o.pres) items.push(`<div><span>Pressure</span><b>${o.pres.v.toFixed(2)} inHg</b></div>`);
+  if (o.level) items.push(`<div><span>Water level</span><b>${o.level.v.toFixed(2)} ft</b></div>`);
+  if (!items.length) return `<p class="muted small" style="margin:0">This station isn't reporting right now.</p>`;
+  const t = (o.temp || o.wind || o.pres || o.level).t;
+  return `<div class="kv">${items.join("")}</div><p class="muted small" style="margin:0">Measured ${ago(t)}</p>`;
+}
+async function fillObsCard(sp) {
+  const el = $("#obsCard"); if (!el) return;
+  try {
+    const st = await nearestObs(sp.lat, sp.lon, 35);
+    if (!st) { el.innerHTML = `<h3>Right now · NOAA</h3><p class="muted small" style="margin:0">No NOAA station within 35 miles of this spot.</p>`; return; }
+    const o = await latestObs(st.id);
+    if (!$("#obsCard")) return;
+    $("#obsCard").innerHTML = `<h3>Right now · NOAA ${esc(st.name)}</h3>${obsHTML(o)}<p class="muted small" style="margin:0">${st.dist.toFixed(0)} mi from this spot. These are real measurements, not a forecast.</p>`;
+  } catch (e) { el.innerHTML = `<h3>Right now · NOAA</h3><p class="muted small" style="margin:0">NOAA readings couldn't load. Tap refresh to try again.</p>`; }
+}
+
 /* ---------------- spot detail ---------------- */
 async function renderSpot() {
   const el = $("#tab-spot"), sp = curSpot();
@@ -290,6 +341,7 @@ async function renderSpot() {
     <div class="row between"><div><h2>${esc(sp.name)}</h2><div class="muted small mono">${sp.lat.toFixed(4)}, ${sp.lon.toFixed(4)}</div></div>
       <div class="row"><button class="btn quiet" id="editSpot">Edit</button></div></div>
     <div class="chips" id="dayChips">${chips}</div>
+    ${selDay === 0 ? `<section class="card" id="obsCard"><h3>Right now · NOAA</h3><p class="loading">Getting live readings…</p></section>` : ""}
     <section class="card">
       <h3>${dayLong(d.date)}</h3>
       <div class="big"><div class="ring" style="background:${scoreColor(d.score)}">${d.score}</div>
@@ -320,6 +372,7 @@ async function renderSpot() {
     <p class="muted small">Weather & marine: Open-Meteo. Tides: NOAA. Sun & moon: calculated on your phone.</p>`;
   $("#editSpot").onclick = () => spotSheet(sp);
   $$("#dayChips .chip").forEach(b => b.onclick = () => { selDay = +b.dataset.i; renderSpot(); });
+  if (selDay === 0) fillObsCard(sp);
   $("#logHere").onclick = () => catchSheet({ spotId: sp.id });
   $("#mapHere").onclick = () => { pendingCenter = [sp.lat, sp.lon]; show("map"); };
 }
@@ -385,6 +438,7 @@ function spotSheet(sp, latlon) {
 }
 
 /* ---------------- map ---------------- */
+let noaaOn = true, obsLayer = null;
 let hotOn = true, hotLayer = null, hotCache = {}, hotTimer = null;
 let map = null, mapReady = false, layerMode = "wind", gridLayer = null, markLayer = null, gridCache = {}, gridTimer = null, pendingCenter = null, gridData = null;
 const SCALES = {
@@ -413,8 +467,10 @@ function openMap() {
     map = L.map("map", { zoomControl: false, attributionControl: true }).setView(pendingCenter || [sp.lat, sp.lon], 10);
     L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 18, attribution: "Imagery © Esri" }).addTo(map);
     L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", { maxZoom: 18, opacity: .8 }).addTo(map);
-    gridLayer = L.layerGroup().addTo(map); hotLayer = L.layerGroup().addTo(map); markLayer = L.layerGroup().addTo(map);
+    gridLayer = L.layerGroup().addTo(map); hotLayer = L.layerGroup().addTo(map); obsLayer = L.layerGroup().addTo(map); markLayer = L.layerGroup().addTo(map);
     map.on("moveend", () => { clearTimeout(gridTimer); gridTimer = setTimeout(loadGrid, 400); clearTimeout(hotTimer); hotTimer = setTimeout(loadHot, 700); });
+    $("#noaaBtn").onclick = () => { noaaOn = !noaaOn; $("#noaaBtn").classList.toggle("on", noaaOn); $("#noaaBtn").setAttribute("aria-pressed", noaaOn); drawObs(); };
+    map.on("moveend", drawObs);
     $("#hotBtn").onclick = () => { hotOn = !hotOn; $("#hotBtn").classList.toggle("on", hotOn); $("#hotBtn").setAttribute("aria-pressed", hotOn); loadHot(); };
     map.on("click", e => {
       const ll = [e.latlng.lat, e.latlng.lng];
@@ -431,7 +487,7 @@ function openMap() {
     mapReady = true; legend();
   } else if (pendingCenter) map.setView(pendingCenter, Math.max(map.getZoom(), 11));
   pendingCenter = null;
-  setTimeout(() => { map.invalidateSize(); loadGrid(); loadHot(); }, 60);
+  setTimeout(() => { map.invalidateSize(); loadGrid(); loadHot(); drawObs(); }, 60);
   drawMarks();
 }
 function drawMarks() {
@@ -453,6 +509,23 @@ function drawMarks() {
   groups.filter(g => g.list.length < 2).map(g => g.list[0]).forEach(c => {
     L.marker([c.lat, c.lon], { icon: L.divIcon({ className: "", html: `<div class="fishm">🐟</div>`, iconSize: [24, 24], iconAnchor: [12, 12] }) })
       .bindPopup(`<b>${esc(c.species || "Catch")}</b><br><span class="muted">${new Date(c.time).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>${c.bait ? `<br>Bait: ${esc(c.bait)}` : ""}`).addTo(markLayer);
+  });
+}
+async function drawObs() {
+  if (!obsLayer) return;
+  obsLayer.clearLayers();
+  if (!noaaOn) return;
+  let list; try { list = await obsStations(); } catch (e) { $("#mapStatus").textContent = "NOAA stations unavailable"; return; }
+  const b = map.getBounds().pad(0.1);
+  list.filter(s => b.contains([s[2], s[3]])).slice(0, 60).forEach(s => {
+    const m = L.marker([s[2], s[3]], { zIndexOffset: 300, icon: L.divIcon({ className: "", html: `<div class="obs">N</div>`, iconSize: [26, 26], iconAnchor: [13, 13] }) }).addTo(obsLayer);
+    m.on("click", async () => {
+      const div = document.createElement("div"); div.className = "pop";
+      div.innerHTML = `<b>${esc(s[1])}</b><span class="muted small">NOAA station ${esc(s[0])} · live readings</span><div class="loading">Getting readings…</div>`;
+      L.popup().setLatLng([s[2], s[3]]).setContent(div).openOn(map);
+      try { const o = await latestObs(s[0]); div.querySelector(".loading").outerHTML = obsHTML(o); }
+      catch (e) { div.querySelector(".loading").textContent = "Readings couldn't load."; }
+    });
   });
 }
 async function loadHot() {
