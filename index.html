@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1d2a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Gulf Bite">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<title>Gulf Bite</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout idea: one-thumb marine app. Header, scrolling tab content, fixed bottom nav. Night-water navy with a sunrise-amber accent. */
+:root{
+  --bg:#0b1d2a; --card:#12293b; --card2:#18344a; --ink:#e9f2f8; --muted:#8eaabd; --line:#22425a;
+  --accent:#ffb547; --accent-ink:#1d1200;
+  --good:#3fcf8e; --ok:#d9c84a; --fair:#f0913a; --poor:#e5534b;
+  --font-display:"Sora",system-ui,sans-serif; --font-body:"Figtree",system-ui,-apple-system,sans-serif; --font-mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+  --safe-t:env(safe-area-inset-top,0px); --safe-b:env(safe-area-inset-bottom,0px);
+  color-scheme:dark;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font:16px/1.4 var(--font-body);display:flex;flex-direction:column;overflow:hidden}
+header{padding:calc(var(--safe-t) + 10px) 16px 10px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line)}
+header h1{font:700 21px var(--font-display);margin:0;letter-spacing:-.01em}
+header h1 span{color:var(--accent)}
+main{flex:1;overflow:hidden;position:relative}
+.tab{position:absolute;inset:0;overflow-y:auto;padding:14px 14px 24px;display:none;flex-direction:column;gap:12px;-webkit-overflow-scrolling:touch}
+.tab.active{display:flex}
+#tab-map{padding:0}
+nav{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line);background:var(--card);padding-bottom:var(--safe-b)}
+nav button{background:none;border:0;color:var(--muted);font:600 12px var(--font-body);padding:9px 0 8px;display:grid;justify-items:center;gap:3px;cursor:pointer;min-height:54px}
+nav button svg{width:22px;height:22px}
+nav button.on{color:var(--accent)}
+h2{font:600 17px var(--font-display);margin:0;text-wrap:balance}
+h3{font:600 13px var(--font-body);margin:0;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;gap:10px}
+.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.between{justify-content:space-between}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+.mono{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.btn{font:600 15px var(--font-body);background:var(--accent);color:var(--accent-ink);border:0;border-radius:10px;padding:10px 14px;min-height:44px;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+.btn.quiet{background:var(--card2);color:var(--ink)}
+.btn.danger{background:transparent;color:var(--poor);border:1px solid var(--poor)}
+.icon-btn{background:var(--card2);border:1px solid var(--line);color:var(--ink);border-radius:50%;width:40px;height:40px;display:grid;place-items:center;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.spot{cursor:pointer}
+.spot .name{font:600 18px var(--font-display)}
+.now{display:flex;gap:14px;align-items:center}
+.now b{font:500 18px var(--font-mono)}
+.week{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.dayc{border-radius:8px;padding:6px 0;text-align:center;font-size:12px;color:#0b1d2a;font-weight:600}
+.dayc b{display:block;font:500 15px var(--font-mono)}
+.s-good{background:var(--good)} .s-ok{background:var(--ok)} .s-fair{background:var(--fair)} .s-poor{background:var(--poor)} .s-none{background:var(--card2);color:var(--muted)}
+.chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+.chip{flex:0 0 auto;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:7px 10px;font:600 13px var(--font-body);display:grid;justify-items:center;gap:2px;cursor:pointer;min-width:58px}
+.chip i{font-style:normal;font:500 13px var(--font-mono);border-radius:6px;padding:0 6px;color:#0b1d2a}
+.chip.on{border-color:var(--accent);background:var(--card2)}
+.big{display:flex;align-items:center;gap:14px}
+.ring{width:76px;height:76px;border-radius:50%;display:grid;place-items:center;font:700 26px var(--font-mono);color:#0b1d2a;flex:0 0 auto}
+.bars{display:grid;gap:6px;flex:1}
+.bar{display:grid;grid-template-columns:96px 1fr;gap:8px;align-items:center;font-size:13px}
+.bar .tr{height:8px;background:var(--card2);border-radius:5px;overflow:hidden}
+.bar .tr span{display:block;height:100%;background:var(--accent);border-radius:5px}
+.bar small{grid-column:2;color:var(--muted);margin-top:-4px}
+.win{display:flex;gap:12px;align-items:baseline;border-left:3px solid var(--accent);padding:4px 0 4px 10px}
+.win b{font:500 16px var(--font-mono);white-space:nowrap}
+.strip{display:grid;grid-template-columns:repeat(24,1fr);gap:2px}
+.strip span{height:22px;border-radius:3px}
+.strip-l{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:6px 5px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{font:600 11px var(--font-body);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+td{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.arrow{display:inline-block;width:14px;height:14px;vertical-align:-2px}
+.kv{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.kv div{background:var(--card2);border-radius:10px;padding:8px 10px}
+.kv span{display:block;font-size:12px;color:var(--muted)}
+.kv b{font:500 16px var(--font-mono)}
+svg.tide{width:100%;height:auto;display:block}
+.empty{color:var(--muted);text-align:center;padding:24px 8px}
+.err{color:var(--fair);font-size:14px}
+.loading{color:var(--muted);font-size:14px}
+/* map */
+#map{position:absolute;inset:0;background:#06121b}
+.mapbar{position:absolute;left:10px;right:10px;top:10px;z-index:500;display:grid;gap:8px}
+.seg{display:flex;background:rgba(11,29,42,.88);border:1px solid var(--line);border-radius:12px;padding:3px;gap:3px;backdrop-filter:blur(6px)}
+.seg button{flex:1;background:none;border:0;color:var(--muted);font:600 14px var(--font-body);padding:8px 4px;border-radius:9px;cursor:pointer}
+.seg button.on{background:var(--accent);color:var(--accent-ink)}
+.timebox{background:rgba(11,29,42,.88);border:1px solid var(--line);border-radius:12px;padding:8px 12px;display:grid;gap:4px;backdrop-filter:blur(6px)}
+.timebox input{width:100%;accent-color:var(--accent)}
+.legend{position:absolute;left:10px;bottom:12px;z-index:500;background:rgba(11,29,42,.88);border:1px solid var(--line);border-radius:10px;padding:6px 10px;font:500 11px var(--font-mono);display:grid;gap:4px}
+.legend .grad{height:8px;width:200px;border-radius:4px}
+.legend .ticks{display:flex;justify-content:space-between}
+.maptip{position:absolute;right:10px;bottom:12px;z-index:500;font-size:12px;color:var(--muted);background:rgba(11,29,42,.88);border-radius:8px;padding:5px 8px}
+.wx{display:grid;justify-items:center;font:600 10px var(--font-mono);color:#fff;text-shadow:0 1px 2px #000}
+.wx svg{width:26px;height:26px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.6))}
+.dot{border-radius:50%;width:34px;height:34px;display:grid;place-items:center;font:600 11px var(--font-mono);color:#0b1d2a;border:2px solid rgba(255,255,255,.7)}
+.pin{width:30px;height:30px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--accent);border:2px solid #fff;display:grid;place-items:center}
+.pin span{transform:rotate(45deg);font-size:14px}
+.fishm{font-size:20px;filter:drop-shadow(0 1px 2px #000)}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--card);color:var(--ink)}
+.leaflet-popup-content{margin:12px;font:14px var(--font-body)}
+.leaflet-container a.leaflet-popup-close-button{color:var(--muted)}
+.pop{display:grid;gap:8px;min-width:190px}
+/* sheet */
+#sheet{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.55);display:none;align-items:flex-end}
+#sheet.open{display:flex}
+#sheet .panel{background:var(--card);border-radius:18px 18px 0 0;border-top:1px solid var(--line);width:100%;max-height:88%;overflow-y:auto;padding:16px 16px calc(16px + var(--safe-b));display:grid;gap:12px}
+label.f{display:grid;gap:4px;font-size:13px;color:var(--muted);font-weight:600}
+input,select,textarea{font:16px var(--font-body);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px;min-height:44px;width:100%}
+textarea{min-height:70px;resize:vertical}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.catch{display:grid;gap:4px}
+.catch .t{font:600 16px var(--font-display)}
+.tags{display:flex;flex-wrap:wrap;gap:6px}
+.tag{font-size:12px;background:var(--card2);border-radius:999px;padding:3px 9px;color:var(--muted)}
+@media (prefers-reduced-motion: reduce){*{scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Gulf <span>Bite</span></h1>
+  <button class="icon-btn" id="refresh" aria-label="Refresh forecasts">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+  </button>
+</header>
+<main>
+  <section class="tab active" id="tab-home" aria-label="My spots"></section>
+  <section class="tab" id="tab-map" aria-label="Map">
+    <div id="map"></div>
+    <div class="mapbar">
+      <div class="seg" id="layerSeg">
+        <button data-l="wind" class="on">Wind</button><button data-l="waves">Waves</button><button data-l="sst">Water temp</button>
+      </div>
+      <div class="timebox">
+        <div class="row between small"><span id="mapTime">Now</span><span class="muted" id="mapStatus"></span></div>
+        <input type="range" id="mapSlider" min="0" max="47" value="0" aria-label="Forecast hour">
+      </div>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div class="maptip">Tap the map to save a spot</div>
+  </section>
+  <section class="tab" id="tab-spot" aria-label="Forecast"></section>
+  <section class="tab" id="tab-log" aria-label="Catch log"></section>
+</main>
+<nav>
+  <button data-tab="home" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>Spots</button>
+  <button data-tab="map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"/><path d="M9 4v14M15 6v14"/></svg>Map</button>
+  <button data-tab="spot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 15c3-3 5-3 8 0s5 3 10 0"/><path d="M3 9c3-3 5-3 8 0s5 3 10 0"/></svg>Forecast</button>
+  <button data-tab="log"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 12c3-4 7-5 11-3l4-3v12l-4-3c-4 2-8 1-11-3z"/><circle cx="8" cy="11" r="1"/></svg>Catches</button>
+</nav>
+<div id="sheet" role="dialog" aria-modal="true"><div class="panel" id="panel"></div></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/suncalc/1.9.0/suncalc.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
