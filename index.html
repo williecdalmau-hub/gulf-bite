@@ -108,6 +108,13 @@ svg.tide{width:100%;height:auto;display:block}
 .dot{border-radius:50%;width:34px;height:34px;display:grid;place-items:center;font:600 11px var(--font-mono);color:#0b1d2a;border:2px solid rgba(255,255,255,.7)}
 .pin{width:30px;height:30px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--accent);border:2px solid #fff;display:grid;place-items:center}
 .pin span{transform:rotate(45deg);font-size:14px}
+.hotbtn{position:absolute;right:10px;bottom:46px;z-index:500;font:600 14px var(--font-body);background:rgba(11,29,42,.9);color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:9px 14px;min-height:42px;cursor:pointer}
+.hotbtn.on{background:var(--good);color:#0b1d2a;border-color:var(--good)}
+.hot{width:30px;height:30px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:2px solid #fff;display:grid;place-items:center;box-shadow:0 1px 3px rgba(0,0,0,.5)}
+.hot span{transform:rotate(45deg);font-size:14px;line-height:1}
+.hot.fish{background:#2bb58a}.hot.pier{background:#3a86d6}.hot.ramp{background:#7b68d9}
+.star{font-size:22px;filter:drop-shadow(0 1px 2px #000);position:relative}
+.star b{position:absolute;right:-6px;top:-6px;background:var(--accent);color:#1d1200;font:700 10px var(--font-mono);border-radius:999px;padding:1px 4px}
 .fishm{font-size:20px;filter:drop-shadow(0 1px 2px #000)}
 .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--card);color:var(--ink)}
 .leaflet-popup-content{margin:12px;font:14px var(--font-body)}
@@ -149,6 +156,7 @@ textarea{min-height:70px;resize:vertical}
       </div>
     </div>
     <div class="legend" id="legend"></div>
+    <button class="hotbtn on" id="hotBtn" aria-pressed="true">🐟 Hotspots</button>
     <div class="maptip">Tap the map to save a spot</div>
   </section>
   <section class="tab" id="tab-spot" aria-label="Forecast"></section>

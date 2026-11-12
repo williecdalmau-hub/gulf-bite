@@ -350,7 +350,8 @@ function openSheet(html) { $("#panel").innerHTML = html; $("#sheet").classList.a
 function closeSheet() { $("#sheet").classList.remove("open"); }
 $("#sheet").addEventListener("click", e => { if (e.target.id === "sheet") closeSheet(); });
 function spotSheet(sp, latlon) {
-  const isNew = !sp;
+  if (sp && sp._new) { latlon = [sp.lat, sp.lon]; sp = { name: sp.name, lat: sp.lat, lon: sp.lon, _prefill: true }; }
+  const isNew = !sp || sp._prefill;
   const s = sp || { name: "", lat: latlon ? latlon[0] : "", lon: latlon ? latlon[1] : "" };
   openSheet(`<h2>${isNew ? "Add a spot" : "Edit spot"}</h2>
     <label class="f" for="spName">Name<input id="spName" value="${esc(s.name)}" placeholder="e.g. Lynn Haven Bayou"></label>
@@ -384,6 +385,7 @@ function spotSheet(sp, latlon) {
 }
 
 /* ---------------- map ---------------- */
+let hotOn = true, hotLayer = null, hotCache = {}, hotTimer = null;
 let map = null, mapReady = false, layerMode = "wind", gridLayer = null, markLayer = null, gridCache = {}, gridTimer = null, pendingCenter = null, gridData = null;
 const SCALES = {
   wind: { unit: "mph", stops: [[0, "#4a7bd0"], [5, "#3ec1e0"], [10, "#4fd18b"], [15, "#e3d44a"], [20, "#f39a3d"], [25, "#e8504f"], [35, "#b03a8c"]] },
@@ -411,8 +413,9 @@ function openMap() {
     map = L.map("map", { zoomControl: false, attributionControl: true }).setView(pendingCenter || [sp.lat, sp.lon], 10);
     L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 18, attribution: "Imagery © Esri" }).addTo(map);
     L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}", { maxZoom: 18, opacity: .8 }).addTo(map);
-    gridLayer = L.layerGroup().addTo(map); markLayer = L.layerGroup().addTo(map);
-    map.on("moveend", () => { clearTimeout(gridTimer); gridTimer = setTimeout(loadGrid, 400); });
+    gridLayer = L.layerGroup().addTo(map); hotLayer = L.layerGroup().addTo(map); markLayer = L.layerGroup().addTo(map);
+    map.on("moveend", () => { clearTimeout(gridTimer); gridTimer = setTimeout(loadGrid, 400); clearTimeout(hotTimer); hotTimer = setTimeout(loadHot, 700); });
+    $("#hotBtn").onclick = () => { hotOn = !hotOn; $("#hotBtn").classList.toggle("on", hotOn); $("#hotBtn").setAttribute("aria-pressed", hotOn); loadHot(); };
     map.on("click", e => {
       const ll = [e.latlng.lat, e.latlng.lng];
       const div = document.createElement("div"); div.className = "pop";
@@ -428,7 +431,7 @@ function openMap() {
     mapReady = true; legend();
   } else if (pendingCenter) map.setView(pendingCenter, Math.max(map.getZoom(), 11));
   pendingCenter = null;
-  setTimeout(() => { map.invalidateSize(); loadGrid(); }, 60);
+  setTimeout(() => { map.invalidateSize(); loadGrid(); loadHot(); }, 60);
   drawMarks();
 }
 function drawMarks() {
@@ -437,10 +440,52 @@ function drawMarks() {
     const m = L.marker([s.lat, s.lon], { icon: L.divIcon({ className: "", html: `<div class="pin"><span>📍</span></div>`, iconSize: [30, 30], iconAnchor: [15, 30] }) }).addTo(markLayer);
     m.on("click", () => { selId = s.id; LS.set("gb_sel", selId); selDay = 0; show("spot"); });
   });
+  const groups = [];
   catches.filter(c => c.lat != null).forEach(c => {
+    const g = groups.find(g => miles(g.lat, g.lon, c.lat, c.lon) < 0.4);
+    if (g) g.list.push(c); else groups.push({ lat: c.lat, lon: c.lon, list: [c] });
+  });
+  groups.filter(g => g.list.length >= 2).forEach(g => {
+    const top = topOf(g.list.map(c => c.species)), bait = topOf(g.list.map(c => c.bait));
+    L.marker([g.lat, g.lon], { zIndexOffset: 500, icon: L.divIcon({ className: "", html: `<div class="star">⭐<b>${g.list.length}</b></div>`, iconSize: [26, 26], iconAnchor: [13, 13] }) })
+      .bindPopup(`<b>Your hotspot: ${g.list.length} catches</b><br>Most caught: ${esc(top)}<br>Best bait: ${esc(bait)}`).addTo(markLayer);
+  });
+  groups.filter(g => g.list.length < 2).map(g => g.list[0]).forEach(c => {
     L.marker([c.lat, c.lon], { icon: L.divIcon({ className: "", html: `<div class="fishm">🐟</div>`, iconSize: [24, 24], iconAnchor: [12, 12] }) })
       .bindPopup(`<b>${esc(c.species || "Catch")}</b><br><span class="muted">${new Date(c.time).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>${c.bait ? `<br>Bait: ${esc(c.bait)}` : ""}`).addTo(markLayer);
   });
+}
+async function loadHot() {
+  if (!hotLayer) return;
+  if (!hotOn) { hotLayer.clearLayers(); return; }
+  if (map.getZoom() < 9) { hotLayer.clearLayers(); $("#mapStatus").textContent = "Zoom in to see hotspots"; return; }
+  const b = map.getBounds(), r = v => v.toFixed(2);
+  const bb = `${r(b.getSouth())},${r(b.getWest())},${r(b.getNorth())},${r(b.getEast())}`;
+  try {
+    if (!hotCache[bb]) {
+      const q = `[out:json][timeout:25];(node["leisure"="fishing"](${bb});way["leisure"="fishing"](${bb});node["fishing"="yes"](${bb});way["fishing"="yes"](${bb});way["man_made"="pier"](${bb});node["man_made"="pier"](${bb});node["leisure"="slipway"](${bb});way["leisure"="slipway"](${bb}););out center 250;`;
+      const j = await getJSON("https://overpass-api.de/api/interpreter?data=" + encodeURIComponent(q));
+      hotCache[bb] = (j.elements || []).map(e => {
+        const t = e.tags || {}, lat = e.lat != null ? e.lat : e.center && e.center.lat, lon = e.lon != null ? e.lon : e.center && e.center.lon;
+        const kind = t.leisure === "slipway" ? "ramp" : t.man_made === "pier" ? "pier" : "fish";
+        return { lat, lon, kind, name: t.name || { ramp: "Boat ramp", pier: "Fishing pier", fish: "Fishing spot" }[kind] };
+      }).filter(x => x.lat != null && !(x.kind === "pier" && false));
+    }
+    if (!hotOn) return;
+    hotLayer.clearLayers();
+    const ico = { fish: "🐟", pier: "🎣", ramp: "⛵" };
+    hotCache[bb].forEach(x => {
+      const m = L.marker([x.lat, x.lon], { icon: L.divIcon({ className: "", html: `<div class="hot ${x.kind}"><span>${ico[x.kind]}</span></div>`, iconSize: [30, 30], iconAnchor: [15, 30] }) }).addTo(hotLayer);
+      m.on("click", () => {
+        const div = document.createElement("div"); div.className = "pop";
+        div.innerHTML = `<b>${esc(x.name)}</b><span class="muted small">${{ fish: "Public fishing spot", pier: "Pier", ramp: "Boat ramp" }[x.kind]}</span><div class="pinfo loading">Checking conditions…</div><button class="btn">Save as a spot</button>`;
+        div.querySelector("button").onclick = () => { map.closePopup(); spotSheet({ name: x.name, lat: x.lat, lon: x.lon, _new: true }); };
+        pointInfo([x.lat, x.lon], div.querySelector(".pinfo"));
+        L.popup({ offset: [0, -24] }).setLatLng([x.lat, x.lon]).setContent(div).openOn(map);
+      });
+    });
+    if ($("#mapStatus").textContent.startsWith("Zoom")) $("#mapStatus").textContent = "";
+  } catch (e) { $("#mapStatus").textContent = "Hotspots unavailable right now"; }
 }
 async function pointInfo(ll, el) {
   const t = gridData && gridData.times ? gridData.times[+$("#mapSlider").value] : new Date();
